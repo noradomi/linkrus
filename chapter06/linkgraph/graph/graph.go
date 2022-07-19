@@ -72,9 +72,9 @@ type Graph interface {
 	// UpsertEdge creates a new edge or updates an existing edge.
 	UpsertEdge(edge *Edge) error
 
-	// RemoveStaleEdge removes any edge that originates from the specified
+	// RemoveStaleEdges removes any edge that originates from the specified
 	// links and was updated before the specified timestamp.
-	RemoveStaleEdge(fromID uuid.UUID, updatedBefore time.Time) error
+	RemoveStaleEdges(fromID uuid.UUID, updatedBefore time.Time) error
 
 	// Links returns an iterator for the set of links whose IDs belong to the
 	// [fromID, toID) range and were retrieved before the provided timestamp

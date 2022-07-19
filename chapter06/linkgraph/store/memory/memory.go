@@ -96,6 +96,7 @@ func (s *InMemoryGraph) Links(fromID, toID uuid.UUID, retrievedBefore time.Time)
 	return &linkIterator{s: s, links: list}, nil
 }
 
+// UpsertEdge creates a new edge or updates an existing edge.
 func (s *InMemoryGraph) UpsertEdge(edge *graph.Edge) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -106,6 +107,8 @@ func (s *InMemoryGraph) UpsertEdge(edge *graph.Edge) error {
 	if !srcExists || !dstExists {
 		return xerrors.Errorf("upsert edge: %w", graph.ErrUnknownEdgeLinks)
 	}
+
+	// Scan edge list from source
 	for _, edgeID := range s.linkEdgeMap[edge.Src] {
 		existingEdge := s.edges[edgeID]
 		if existingEdge.Src == edge.Src && existingEdge.Dst == edge.Dst {
@@ -115,5 +118,63 @@ func (s *InMemoryGraph) UpsertEdge(edge *graph.Edge) error {
 		}
 	}
 
+	// Insert new edge
+	for {
+		edge.ID = uuid.New()
+		if s.edges[edge.ID] == nil {
+			break
+		}
+	}
+
+	edge.UpdatedAt = time.Now()
+	eCopy := new(graph.Edge)
+	*eCopy = *edge
+	s.edges[eCopy.ID] = eCopy
+
+	// Append the edge ID to the list of edges originating from the
+	// edge's source link.
+	s.linkEdgeMap[edge.Src] = append(s.linkEdgeMap[edge.Src], eCopy.ID)
+	return nil
+}
+
+// Edges returns an iterator for the set of edges whose source vertex IDs
+// belong to the [fromID, toID) range and were updated before the provided
+// timestamp.
+func (s *InMemoryGraph) Edges(fromID, toID uuid.UUID, updatedBefore time.Time) (graph.EdgeIterator, error) {
+	from, to := fromID.String(), toID.String()
+	s.mu.RLock()
+
+	var list []*graph.Edge
+	for linkID := range s.links {
+		if id := linkID.String(); id <= from && id >= to {
+			continue
+		}
+		for _, edgeID := range s.linkEdgeMap[linkID] {
+			if edge := s.edges[edgeID]; edge.UpdatedAt.Before(updatedBefore) {
+				list = append(list, edge)
+			}
+		}
+	}
+	s.mu.RUnlock()
+
+	return &edgeIterator{s: s, edges: list}, nil
+}
+
+// RemoveStaleEdges removes any edge that originates from the specified link ID
+// and was updated before the specified timestamp.
+func (s *InMemoryGraph) RemoveStaleEdges(fromID uuid.UUID, updatedBefore time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var newEdgeList edgeList
+	for _, edgeID := range s.linkEdgeMap[fromID] {
+		if edge := s.edges[edgeID]; edge.UpdatedAt.Before(updatedBefore) {
+			delete(s.edges, edgeID)
+			continue
+		}
+		newEdgeList = append(newEdgeList, edgeID)
+	}
+
+	// Replace edge list or origin link with the filtered edge list
+	s.linkEdgeMap[fromID] = newEdgeList
 	return nil
 }
