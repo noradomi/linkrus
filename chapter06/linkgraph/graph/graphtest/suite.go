@@ -18,8 +18,8 @@ type SuiteBase struct {
 	g graph.Graph
 }
 
-// SetSuite configures the test-suite to run all tests against (đối với) g.
-func (s *SuiteBase) SetSuite(g graph.Graph) {
+// SetGraph configures the test-suite to run all tests against (đối với) g.
+func (s *SuiteBase) SetGraph(g graph.Graph) {
 	s.g = g
 }
 
@@ -38,7 +38,7 @@ func (s *SuiteBase) TestUpsertLink(c *gc.C) {
 	accessedAt := time.Now().Truncate(time.Second).UTC()
 	existing := &graph.Link{
 		ID:          original.ID,
-		URL:         "https://example2.com",
+		URL:         "https://example.com",
 		RetrievedAt: accessedAt,
 	}
 	err = s.g.UpsertLink(existing)

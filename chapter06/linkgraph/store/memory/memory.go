@@ -10,7 +10,7 @@ import (
 )
 
 // Compile-time check for ensuring InMemoryGraph implements Graph.
-//var _ graph.Graph = (*InMemoryGraph)(nil)
+var _ graph.Graph = (*InMemoryGraph)(nil)
 
 // edgeList contains the slice of edge UUIDs that originate from a link in the graph.
 type edgeList []uuid.UUID
@@ -24,7 +24,7 @@ type InMemoryGraph struct {
 	edges map[uuid.UUID]*graph.Edge
 
 	linkURLIndex map[string]*graph.Link
-	linkEdgeMap  map[uuid.UUID]edgeList // ? not *
+	linkEdgeMap  map[uuid.UUID]edgeList
 }
 
 // NewInMemoryGraph creates a new in-memory link graph.
@@ -37,6 +37,7 @@ func NewInMemoryGraph() *InMemoryGraph {
 	}
 }
 
+// UpsertLink creates a new link or updates an existing link.
 func (s *InMemoryGraph) UpsertLink(link *graph.Link) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -67,8 +68,8 @@ func (s *InMemoryGraph) UpsertLink(link *graph.Link) error {
 }
 
 func (s *InMemoryGraph) FindLink(id uuid.UUID) (*graph.Link, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
 	link := s.links[id]
 	if link == nil {
@@ -84,14 +85,14 @@ func (s *InMemoryGraph) FindLink(id uuid.UUID) (*graph.Link, error) {
 func (s *InMemoryGraph) Links(fromID, toID uuid.UUID, retrievedBefore time.Time) (graph.LinkIterator, error) {
 	from, to := fromID.String(), toID.String()
 
-	s.mu.Lock()
+	s.mu.RLock()
 	var list []*graph.Link
 	for linkID, link := range s.links {
 		if id := linkID.String(); id >= from && id < to && link.RetrievedAt.Before(retrievedBefore) {
 			list = append(list, link)
 		}
 	}
-	s.mu.Unlock()
+	s.mu.RLock()
 
 	return &linkIterator{s: s, links: list}, nil
 }
@@ -146,7 +147,7 @@ func (s *InMemoryGraph) Edges(fromID, toID uuid.UUID, updatedBefore time.Time) (
 
 	var list []*graph.Edge
 	for linkID := range s.links {
-		if id := linkID.String(); id <= from && id >= to {
+		if id := linkID.String(); id < from || id >= to {
 			continue
 		}
 		for _, edgeID := range s.linkEdgeMap[linkID] {
