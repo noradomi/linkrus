@@ -3,12 +3,17 @@ package pipeline
 import (
 	"context"
 	"golang.org/x/xerrors"
+	"sync"
 )
 
+// FIFO dispatch strategy
 type fifo struct {
 	proc Processor
 }
 
+// FIFO returns a StageRunner that processes incoming payloads in a first-in
+// first-out fashion. Each input is passed to the specified processor and its
+// output is emitted to the next stage.
 func FIFO(proc Processor) StageRunner {
 	return fifo{proc: proc}
 }
@@ -46,4 +51,36 @@ func (r fifo) Run(ctx context.Context, params StageParams) {
 			}
 		}
 	}
+}
+
+// Fixed worker pool dispatch strategy
+type fixedWorkerPool struct {
+	fifos []StageRunner
+}
+
+func FixedWorkerPool(proc Processor, numWorkers int) StageRunner {
+	if numWorkers <= 0 {
+		panic("FixedWorkerPool: numWorkers must be > 0")
+	}
+
+	fifos := make([]StageRunner, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		fifos[i] = FIFO(proc)
+	}
+
+	// why using & operator
+	return &fixedWorkerPool{fifos: fifos}
+}
+
+func (f fixedWorkerPool) Run(ctx context.Context, params StageParams) {
+	var wg sync.WaitGroup
+
+	for i, fifo := range f.fifos {
+		wg.Add(1)
+		go func(fifoIndex int) {
+			fifo.Run(ctx, params)
+		}(i)
+	}
+
+	wg.Wait()
 }
